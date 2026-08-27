@@ -96,7 +96,8 @@ class RecipeTransferHandler<T extends Container> implements IRecipeTransferHandl
             recipe.setTag("ae2exttable", compound);
         }
 
-        int slotIndex = 0;
+        int recipeSize = getRecipeSize(recipeType);
+        RecipeBounds recipeBounds = getRecipeBounds(ingredients, recipeSize);
         for (Map.Entry<Integer, ? extends IGuiIngredient<ItemStack>> ingredientEntry : ingredients.entrySet()) {
             IGuiIngredient<ItemStack> ingredient = ingredientEntry.getValue();
             if (!ingredient.isInput()) {
@@ -105,6 +106,16 @@ class RecipeTransferHandler<T extends Container> implements IRecipeTransferHandl
                     final NBTTagCompound tag = stackToNBT(output);
                     outputs.appendTag(tag);
                 }
+                continue;
+            }
+
+            ItemStack displayed = ingredient.getDisplayedIngredient();
+            if (displayed == null || displayed.isEmpty()) {
+                continue;
+            }
+
+            int slotIndex = ingredientEntry.getKey() - 1;
+            if (slotIndex < 0 || slotIndex >= recipeSize * recipeSize) {
                 continue;
             }
 
@@ -119,12 +130,9 @@ class RecipeTransferHandler<T extends Container> implements IRecipeTransferHandl
                         // This means we're in the right place
                         final NBTTagList new_tags = new NBTTagList();
                         final List<ItemStack> list = new ArrayList<>();
-                        final ItemStack displayed = ingredient.getDisplayedIngredient();
 
                         // prefer currently displayed item
-                        if (displayed != null && !displayed.isEmpty()) {
-                            list.add(displayed);
-                        }
+                        list.add(displayed);
 
                         for (final ItemStack is : list) {
                             final NBTTagCompound _tag = stackToNBT(is);
@@ -132,14 +140,12 @@ class RecipeTransferHandler<T extends Container> implements IRecipeTransferHandl
                         }
 
                         // Item belongs in this slot's index
-                        int idx = getIndex(container, recipeType, slotIndex);
+                        int idx = getIndex(container, slotIndex, recipeSize, recipeBounds);
                         recipe.setTag("#" + idx, new_tags);
                         break;
                     }
                 }
             }
-
-            slotIndex++;
         }
 
         recipe.setTag("outputs", outputs);
@@ -165,31 +171,85 @@ class RecipeTransferHandler<T extends Container> implements IRecipeTransferHandl
 
      Also, for some reason the bigger tables cannot accept vanilla recipes, partially my fault but it's in Blake's code too
      */
-    private int getIndex(@Nonnull T container, String recipeType, int currentIndex) {
-        final int ultimateSize = 9;
-        final int eliteSize = 7;
-        final int advancedSize = 5;
-        final int basicSize = 3;
+    private int getIndex(@Nonnull T container, int currentIndex, int recipeSize,
+                         RecipeBounds recipeBounds) {
         final int thisSize = ((ContainerMEMonitorableTwo)container).getWidth();
+        final int sourceX = currentIndex % recipeSize;
+        final int sourceY = currentIndex / recipeSize;
+        final int targetX = sourceX - recipeBounds.minX + (thisSize - recipeBounds.width()) / 2;
+        final int targetY = sourceY - recipeBounds.minY + (thisSize - recipeBounds.height()) / 2;
 
-        final boolean basicRecipe = recipeType.equals(BasicTableCategory.UID) | recipeType.equals(VanillaRecipeCategoryUid.CRAFTING);
+        return targetY * thisSize + targetX;
+    }
+
+    private int getRecipeSize(final String recipeType) {
+        if (recipeType.equals(UltimateTableCategory.UID)) {
+            return 9;
+        }
+
         if (recipeType.equals(EliteTableCategory.UID)) {
-            int size = ((thisSize-eliteSize)/2);
-            // These matrices are always square, so rowSize=colSize => size
-            return ((currentIndex/eliteSize + size) * thisSize) + ((currentIndex % eliteSize) + size);
+            return 7;
         }
-        
         if (recipeType.equals(AdvancedTableCategory.UID)) {
-            int size = ((thisSize-advancedSize)/2);
-            return ((currentIndex/advancedSize + size) * thisSize) + ((currentIndex % advancedSize) + size);
+            return 5;
         }
 
-        if (basicRecipe) {
-            int size = ((thisSize-basicSize)/2);
-            return ((currentIndex/basicSize + size) * thisSize) + ((currentIndex % basicSize) + size);
+        return 3;
+    }
+
+    private RecipeBounds getRecipeBounds(
+            Map<Integer, ? extends IGuiIngredient<ItemStack>> ingredients,
+            int recipeSize) {
+
+        int minX = recipeSize;
+        int minY = recipeSize;
+        int maxX = -1;
+        int maxY = -1;
+
+        for (Map.Entry<Integer, ? extends IGuiIngredient<ItemStack>> entry
+                : ingredients.entrySet()) {
+            final IGuiIngredient<ItemStack> ingredient = entry.getValue();
+            final int index = entry.getKey() - 1;
+            final ItemStack displayed = ingredient.getDisplayedIngredient();
+            if (!ingredient.isInput() || displayed == null || displayed.isEmpty()
+                    || index < 0 || index >= recipeSize * recipeSize) {
+                continue;
+            }
+
+            final int x = index % recipeSize;
+            final int y = index / recipeSize;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
         }
 
+        if (maxX < 0) {
+            return new RecipeBounds(0, 0, recipeSize - 1, recipeSize - 1);
+        }
 
-        return currentIndex;
+        return new RecipeBounds(minX, minY, maxX, maxY);
+    }
+
+    private static class RecipeBounds {
+        private final int minX;
+        private final int minY;
+        private final int maxX;
+        private final int maxY;
+
+        private RecipeBounds(int minX, int minY, int maxX, int maxY) {
+            this.minX = minX;
+            this.minY = minY;
+            this.maxX = maxX;
+            this.maxY = maxY;
+        }
+
+        private int width() {
+            return this.maxX - this.minX + 1;
+        }
+
+        private int height() {
+            return this.maxY - this.minY + 1;
+        }
     }
 }
