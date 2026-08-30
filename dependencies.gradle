@@ -38,7 +38,7 @@
  * For more details, see https://docs.gradle.org/8.4/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 dependencies {
-    compileOnly rfg.deobf("org.spongepowered:mixin:0.8.5-GTNH")
+    compileOnly "org.spongepowered:mixin:0.8.5"
     implementation rfg.deobf("curse.maven:extended-crafting-268387:2777071")
     implementation rfg.deobf("curse.maven:cucumber-272335:2645867")
     implementation rfg.deobf("curse.maven:baubles-227083:2518667")

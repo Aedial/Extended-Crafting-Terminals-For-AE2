@@ -22,6 +22,8 @@ import appeng.util.inv.InvOperation;
 import appeng.util.inv.WrapperInvItemHandler;
 import com.blakebr0.extendedcrafting.config.ModConfig;
 import com.blakebr0.extendedcrafting.crafting.table.TableRecipeManager;
+import com.blakebr0.extendedcrafting.crafting.table.TableRecipeShapedAccess;
+import com.blakebr0.extendedcrafting.crafting.table.TableRecipeShaped;
 import com._0xc4de.ae2exttable.client.gui.ExtendedCraftingGUIConstants;
 import com._0xc4de.ae2exttable.client.gui.GuiMEMonitorableTwo;
 import com._0xc4de.ae2exttable.client.gui.WirelessTerminalGuiObjectTwo;
@@ -30,7 +32,6 @@ import com._0xc4de.ae2exttable.part.PartSharedCraftingTerminal;
 import java.util.List;
 
 import net.minecraft.entity.player.InventoryPlayer;
-import net.minecraft.init.Blocks;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.inventory.InventoryCrafting;
 import net.minecraft.item.ItemStack;
@@ -147,15 +148,25 @@ public abstract class ContainerMEMonitorableTwo extends ContainerMEMonitorable
         final InventoryCrafting ic =
                 new InventoryCrafting(cn, this.slotWidth, this.slotHeight);
 
+        // Skip recipe matching altogether for empty grids
+        boolean hasInput = false;
         for (int x = 0; x < this.slotWidth * this.slotHeight; x++) {
-            ic.setInventorySlotContents(x, this.craftingSlots[x].getStack());
+            final ItemStack stack = this.craftingSlots[x].getStack();
+            ic.setInventorySlotContents(x, stack);
+            hasInput |= !stack.isEmpty();
+        }
+
+        if (!hasInput) {
+            this.currentRecipe = null;
+            this.outputSlot.putStack(ItemStack.EMPTY);
+            return;
         }
 
         IRecipe recipe = this.getRecipeMatchingGrid(ic);
         this.currentRecipe = recipe;
 
         if (recipe == null) {
-            this.outputSlot.putStack(new ItemStack(Blocks.AIR));
+            this.outputSlot.putStack(ItemStack.EMPTY);
         } else {
             this.outputSlot.putStack(recipe.getCraftingResult(ic));
         }
@@ -211,8 +222,9 @@ public abstract class ContainerMEMonitorableTwo extends ContainerMEMonitorable
         // I will not be using that directly :))
         final var recipes = TableRecipeManager.getInstance().getRecipes();
         for (Object recipe : recipes) {
-            if (((IRecipe) recipe).matches(ic, world)) {
-                return (IRecipe) recipe;
+            final IRecipe tableRecipe = (IRecipe) recipe;
+            if (this.matchesTerminalRecipe(tableRecipe, ic, world)) {
+                return tableRecipe;
             }
         }
 
@@ -228,6 +240,58 @@ public abstract class ContainerMEMonitorableTwo extends ContainerMEMonitorable
         }
 
         return null;
+    }
+
+    /**
+     * The normal Extended Crafting recipe matching tries to match *every
+     * single slot* in the crafting grid, resulting in high latency every
+     * time the player opens the terminal or changes the crafting grid.
+     * To fix this, we add a centered matching constraint, reducing the
+     * number of full recipe matches from hundreds of times to just a few.
+     */
+    private boolean matchesTerminalRecipe(final IRecipe recipe,
+                                          final InventoryCrafting inventory,
+                                          final World world) {
+        if (!(recipe instanceof TableRecipeShaped)) {
+            return recipe.matches(inventory, world);
+        }
+
+        final TableRecipeShaped shapedRecipe = (TableRecipeShaped) recipe;
+        final int recipeWidth = shapedRecipe.getWidth();
+        final int recipeHeight = shapedRecipe.getHeight();
+        if (recipeWidth > inventory.getWidth() || recipeHeight > inventory.getHeight()) {
+            return false;
+        }
+
+        if (shapedRecipe.requiresTier()
+                && shapedRecipe.getTier() != this.getTier(inventory)) {
+            return false;
+        }
+
+        final int startX = (inventory.getWidth() - recipeWidth) / 2;
+        final int startY = (inventory.getHeight() - recipeHeight) / 2;
+        return TableRecipeShapedAccess.checkMatch(shapedRecipe, inventory,
+                startX, startY, false)
+            || TableRecipeShapedAccess.isMirrored(shapedRecipe)
+            && TableRecipeShapedAccess.checkMatch(shapedRecipe, inventory,
+                startX, startY, true);
+    }
+
+    private int getTier(final InventoryCrafting inventory) {
+        final int size = inventory.getSizeInventory();
+        if (size < 10) {
+            return 1;
+        }
+
+        if (size < 26) {
+            return 2;
+        }
+
+        if (size < 50) {
+            return 3;
+        }
+
+        return 4;
     }
 
     public int getWidth() {
