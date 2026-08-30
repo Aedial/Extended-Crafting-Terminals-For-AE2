@@ -287,7 +287,11 @@ public abstract class ContainerMEMonitorableTwo extends ContainerMEMonitorable
             return 2;
         }
 
-        return size < 50 ? 3 : 4;
+        if (size < 50) {
+            return 3;
+        }
+
+        return 4;
     }
 
     public int getWidth() {
